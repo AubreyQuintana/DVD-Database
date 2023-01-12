@@ -1,0 +1,115 @@
+-- Business question: Who are the top 25 customers with the most rentals?
+
+-- B. CREATE detailed table
+
+DROP TABLE IF EXISTS detailed;
+CREATE TABLE detailed (
+	customer_id integer,
+	first_name varchar(15),
+	last_name varchar(15),
+	email varchar(45),
+	rental_id integer);
+	
+--SELECT * FROM detailed;
+
+-- CREATE summary table
+
+DROP TABLE IF EXISTS summary;
+CREATE TABLE summary (
+	customer_id integer,
+	full_name varchar(25),
+	email varchar(45),
+	total_rentals integer);
+	
+--SELECT * FROM summary;
+
+-- C. Extract raw data from database into detailed table
+
+INSERT INTO detailed (
+	customer_id,
+	first_name,
+	last_name,
+	email,
+	rental_id)
+SELECT 
+	c.customer_id, 
+	c.first_name, 
+	c.last_name, 
+	c.email, 
+	r.rental_id
+FROM rental as r
+Inner join customer as c on c.customer_id = r.customer_id;
+
+--SELECT * FROM detailed;
+
+--To verify accuracy of data, compare the count of rentals in the detailed table with the raw data from the rental table
+--SELECT COUNT(rental_id) FROM rental;
+--Equals 16044
+--SELECT COUNT(rental_id) FROM detailed;
+--Equals 16044
+
+-- D. CREATE function refreshing the summary table with a data transformation
+--Transforming the customers first and last name into a full name column
+
+CREATE OR REPLACE FUNCTION rental_counts()
+RETURNS TRIGGER AS $$
+BEGIN
+DELETE FROM summary;
+INSERT INTO summary (
+	SELECT 
+		customer_id, 
+		concat(first_name, ' ', last_name), 
+		email,
+		count(rental_id)
+	FROM detailed
+	GROUP BY customer_id, concat(first_name, ' ', last_name), email
+	ORDER BY count(rental_id) DESC
+	LIMIT 25);
+RETURN NEW;
+END; $$ language plpgsql;
+
+-- E. CREATE TRIGGER
+
+CREATE TRIGGER refresh_summary
+AFTER INSERT ON detailed
+FOR EACH STATEMENT
+EXECUTE PROCEDURE rental_counts();
+
+-- F. CREATE STORED PROCEDURE
+--Run the stored procedure
+CREATE OR REPLACE PROCEDURE refresh_rentals()
+LANGUAGE PLPGSQL
+AS $$
+BEGIN
+DELETE FROM detailed;
+INSERT INTO detailed (
+	customer_id,
+	first_name,
+	last_name,
+	email,
+	rental_id)
+SELECT
+	c.customer_id,
+	c.first_name,
+	c.last_name,
+	c.email,
+	r.rental_id
+FROM rental AS r
+INNER JOIN customer AS c ON c.customer_id = r.customer_id;
+END; $$;
+
+--In order to demonstrate that stored procedure works, delete data from tables
+--DELETE FROM detailed;
+--DELETE FROM summary;
+
+--Next we will inspect both tables to illustrate that neither table has any data
+-- SELECT * FROM detailed;
+-- SELECT * FROM summary;
+
+--Call stored procedure to refresh tables with data
+-- CALL refresh_rentals();
+
+--To view results
+-- SELECT * FROM detailed;
+-- SELECT * FROM summary;
+
